@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>老鼠图片标签编辑</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; }
+  #setup { padding: 20px; max-width: 700px; }
+  #main { display: none; }
+  #top { padding: 8px 12px; border-bottom: 1px solid #ccc;
+         display: flex; justify-content: space-between; align-items: center; }
+  #imgWrap { text-align: center; padding: 12px; background: #f6f6f6; }
+  #imgWrap img, #imgWrap video { max-width: 92vw; max-height: 55vh; }
+  #nav { text-align: center; padding: 6px; }
+  #tagPanel { padding: 10px 14px; border-top: 1px solid #ccc;
+              max-height: 32vh; overflow: auto; }
+  .group { margin-bottom: 6px; }
+  .group-label { display: inline-block; min-width: 60px; color: #666; font-size: 12px; }
+  .tag-btn { padding: 3px 10px; margin: 2px; border: 1px solid #999;
+             background: #fff; cursor: pointer; }
+  .tag-btn.on { background: #333; color: #fff; border-color: #333; }
+  #noteRow { padding: 6px 14px 14px; }
+  #note { width: 60%; padding: 4px; }
+  #fileInfo { color: #666; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div id="setup">
+  <h2>老鼠图片标签编辑</h2>
+  <p>1. 选择图片文件夹：<br><input type="file" id="imgInput" webkitdirectory multiple></p>
+  <p>2. 选择 tagtree.txt：<br><input type="file" id="treeInput" accept=".txt"></p>
+  <p>3. 加载已有的 tags.txt 继续编辑（可选）：<br>
+    <input type="file" id="tagsInput" accept=".txt"></p>
+  <p><button id="startBtn">开始编辑</button></p>
+</div>
+
+<div id="main">
+  <div id="top">
+    <span id="progress"></span>
+    <span>
+      <span id="fileInfo"></span>
+      <button id="exportBtn">导出 tags.txt</button>
+    </span>
+  </div>
+  <div id="imgWrap"></div>
+  <div id="nav">
+    <button id="prevBtn">← 上一张</button>
+    <button id="nextBtn">下一张 →</button>
+  </div>
+  <div id="tagPanel"></div>
+  <div id="noteRow">备注：<input id="note" placeholder="可选"></div>
+</div>
+
+<script>
+(function(){
+  const IMG_RE = /\.(jpe?g|png|gif|webp|bmp|jfif|avif)$/i;
+  const VIDEO_RE = /\.(mp4|webm|mov|mkv|avi|m4v)$/i;
+
+  const state = {
+    images: [],   // {name, url, type}
+    idx: 0,
+    data: {},     // name -> {tags:Set, note:string}
+    groups: []    // [{label, tags:[]}]
+  };
+  const $ = s => document.querySelector(s);
+  let treeText = "";
+
+  function parseTree(text) {
+    const groups = {};
+    for (let line of text.split("\n")) {
+      line = line.trim();
+      if (!line || line.startsWith("#")) continue;
+      const parts = line.split("/").map(s => s.trim()).filter(Boolean);
+      if (parts.length === 0) continue;
+      if (parts.length === 1) {
+        (groups["未分类"] = groups["未分类"] || []).push(parts[0]);
+      } else {
+        const parent = parts[parts.length - 2];
+        const leaf = parts[parts.length - 1];
+        (groups[parent] = groups[parent] || []).push(leaf);
+      }
+    }
+    for (const k in groups) groups[k] = [...new Set(groups[k])];
+    return groups;
+  }
+
+  function parseTags(text) {
+    const data = {};
+    for (let line of text.split("\n")) {
+      line = line.trim();
+      if (!line || line.startsWith("#")) continue;
+      const parts = line.split("|").map(s => s.trim());
+      const name = parts[0];
+      const tags = (parts[1] || "").split(",").map(s => s.trim()).filter(Boolean);
+      const note = parts[2] || "";
+      if (name) data[name] = { tags: new Set(tags), note };
+    }
+    return data;
+  }
+
+  function buildGroups(text) {
+    const m = parseTree(text);
+    const out = [];
+    for (const parent in m) out.push({ label: parent, tags: m[parent] });
+    return out;
+  }
+
+  function ensureItem(name) {
+    if (!state.data[name]) state.data[name] = { tags: new Set(), note: "" };
+    return state.data[name];
+  }
+
+  function renderTagPanel() {
+    const panel = $("#tagPanel");
+    panel.innerHTML = "";
+    const item = ensureItem(state.images[state.idx].name);
+
+    if (state.groups.length === 0) {
+      panel.textContent = "（没有加载标签集，请检查 tagtree.txt）";
+      return;
+    }
+    for (const g of state.groups) {
+      const div = document.createElement("div");
+      div.className = "group";
+      const lab = document.createElement("span");
+      lab.className = "group-label";
+      lab.textContent = g.label;
+      div.appendChild(lab);
+      for (const t of g.tags) {
+        const btn = document.createElement("button");
+        btn.className = "tag-btn" + (item.tags.has(t) ? " on" : "");
+        btn.textContent = t;
+        btn.onclick = () => {
+          if (item.tags.has(t)) item.tags.delete(t);
+          else item.tags.add(t);
+          btn.classList.toggle("on");
+        };
+        div.appendChild(btn);
+      }
+      panel.appendChild(div);
+    }
+  }
+
+  function renderCurrent() {
+    const im = state.images[state.idx];
+    const wrap = $("#imgWrap");
+    wrap.innerHTML = "";
+
+    let el;
+    if (im.type === "video") {
+      el = document.createElement("video");
+      el.src = im.url;
+      el.controls = true;
+      el.preload = "metadata";
+    } else {
+      el = document.createElement("img");
+      el.src = im.url;
+      el.alt = "";
+    }
+    wrap.appendChild(el);
+
+    $("#progress").textContent = `第 ${state.idx + 1} / ${state.images.length} 个`;
+    $("#fileInfo").textContent = im.name + "　";
+    const item = ensureItem(im.name);
+    $("#note").value = item.note || "";
+    renderTagPanel();
+  }
+
+  function step(d) {
+    const n = state.images.length;
+    if (!n) return;
+    state.idx = (state.idx + d + n) % n;
+    renderCurrent();
+  }
+
+  function exportTags() {
+    const lines = ["# 文件名 | 标签1,标签2 | 备注"];
+    for (const im of state.images) {
+      const item = state.data[im.name];
+      if (!item) continue;
+      const tags = [...item.tags].join(",");
+      const note = item.note || "";
+      lines.push(`${im.name} | ${tags} | ${note}`);
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "tags.txt";
+    a.click();
+  }
+
+  $("#imgInput").addEventListener("change", e => {
+    const files = [...e.target.files].filter(f =>
+      IMG_RE.test(f.name) || VIDEO_RE.test(f.name));
+    files.sort((a, b) => a.name.localeCompare(b.name, "zh", { numeric: true }));
+    state.images = files.map(f => ({
+      name: f.name,
+      url: URL.createObjectURL(f),
+      type: VIDEO_RE.test(f.name) ? "video" : "image"
+    }));
+  });
+
+  $("#treeInput").addEventListener("change", e => {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => { treeText = r.result; };
+    r.readAsText(f, "utf-8");
+  });
+
+  let loadedTags = null;
+  $("#tagsInput").addEventListener("change", e => {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => { loadedTags = parseTags(r.result); };
+    r.readAsText(f, "utf-8");
+  });
+
+  $("#startBtn").onclick = () => {
+    if (!state.images.length) { alert("请先选择图片文件夹"); return; }
+    if (!treeText) { alert("请先选择 tagtree.txt"); return; }
+    if (loadedTags) state.data = loadedTags;
+    state.groups = buildGroups(treeText);
+    $("#setup").style.display = "none";
+    $("#main").style.display = "block";
+    renderCurrent();
+  };
+
+  $("#prevBtn").onclick = () => step(-1);
+  $("#nextBtn").onclick = () => step(1);
+  $("#exportBtn").onclick = exportTags;
+
+  document.addEventListener("keydown", e => {
+    if ($("#main").style.display === "none") return;
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+    if (e.key === "ArrowLeft")  step(-1);
+    if (e.key === "ArrowRight") step(1);
+  });
+
+  $("#note").addEventListener("input", e => {
+    const im = state.images[state.idx]; if (!im) return;
+    ensureItem(im.name).note = e.target.value;
+  });
+})();
+</script>
+</body>
+</html>
