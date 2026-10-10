@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>老鼠图片库</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐭</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>老鼠图片库</h1>
+  <input type="search" id="q" placeholder="搜索文件名 / 标签 / 备注（空格分隔）">
+  <div class="row">
+    <label>排序：
+      <select id="sort">
+        <option value="time-desc">时间 新 → 旧</option>
+        <option value="time-asc">时间 旧 → 新</option>
+        <option value="name-asc">文件名 A → Z</option>
+        <option value="name-desc">文件名 Z → A</option>
+      </select>
+    </label>
+    <button id="batchBtn">批量编辑</button>
+    <button id="clearFilters">清空筛选</button>
+    <span id="count"></span>
+  </div>
+  <div class="tags" id="tagbar"></div>
+  <details>
+    <summary>标签层级（每行「父/子」，子标签自动继承父标签）</summary>
+    <textarea id="treeInput" rows="5" placeholder="示例：
+摄影/特写
+摄影/远景
+宠物/仓鼠
+宠物/小白鼠"></textarea>
+    <button id="saveTreeBtn">保存层级</button>
+  </details>
+</header>
+
+<div id="grid"><p class="loading">加载中...</p></div>
+<div id="pager"></div>
+<div id="lightbox"></div>
+<div id="toast"></div>
+
+<div id="batchBar">
+  <div class="batch-row">
+    <span id="batchCount">已选 0 张</span>
+    <button id="batchAddBtn">＋ 加标签</button>
+    <button id="batchRemoveBtn">－ 去标签</button>
+    <button id="batchAllBtn">全选本页</button>
+    <button id="batchNoneBtn">清空选择</button>
+    <button id="batchExitBtn">退出批量</button>
+  </div>
+  <div id="batchTagPicker"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
