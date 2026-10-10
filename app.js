@@ -2,12 +2,13 @@ const PER_PAGE = 40;
 const state = {
   items: [], itemsByName: new Map(), tree: '', q: '', tags: new Set(),
   sort: 'time-desc', page: 1,
-  groups: [], parentOf: {},
+  roots: [], childrenOf: {}, parentOf: {},
   batchMode: false,
   selected: new Set(),
   batchAction: null,
+  editMode: false,
+  editing: null,
 };
-let openEdit = null;
 
 const $ = s => document.querySelector(s);
 const pad = n => String(n).padStart(2, '0');
@@ -15,26 +16,27 @@ const pad = n => String(n).padStart(2, '0');
 /* ---------- 标签层级 ---------- */
 
 function parseTree(text) {
-  const groupsMap = {};
   const parentOf = {};
+  const childrenOf = {};
+  const allTags = new Set();
+
   for (let line of (text || '').split('\n')) {
     line = line.trim();
     if (!line || line.startsWith('#')) continue;
     const parts = line.split('/').map(s => s.trim()).filter(Boolean);
     if (!parts.length) continue;
-    if (parts.length === 1) {
-      const p = '未分类';
-      (groupsMap[p] = groupsMap[p] || []).push(parts[0]);
-    } else {
-      const parent = parts[parts.length - 2];
-      const leaf = parts[parts.length - 1];
-      (groupsMap[parent] = groupsMap[parent] || []).push(leaf);
-      parentOf[leaf] = parent;
+
+    for (const t of parts) allTags.add(t);
+    for (let i = 1; i < parts.length; i++) {
+      const p = parts[i - 1], c = parts[i];
+      parentOf[c] = p;
+      if (!childrenOf[p]) childrenOf[p] = [];
+      if (!childrenOf[p].includes(c)) childrenOf[p].push(c);
     }
   }
-  for (const k in groupsMap) groupsMap[k] = [...new Set(groupsMap[k])];
-  const groups = Object.keys(groupsMap).map(p => ({ parent: p, children: groupsMap[p] }));
-  return { groups, parentOf };
+
+  const roots = [...allTags].filter(t => !parentOf[t]);
+  return { roots, childrenOf, parentOf };
 }
 
 function expandTags(tags) {
@@ -138,17 +140,18 @@ function closeLightbox() {
 function renderTagBar() {
   const bar = $('#tagbar');
   bar.innerHTML = '';
-  for (const g of state.groups) {
+  for (const root of state.roots) {
     const pb = document.createElement('button');
-    pb.className = 'tagbtn' + (state.tags.has(g.parent) ? ' on' : '');
-    pb.textContent = g.parent;
+    pb.className = 'tagbtn' + (state.tags.has(root) ? ' on' : '');
+    pb.textContent = root;
     pb.onclick = () => {
-      state.tags.has(g.parent) ? state.tags.delete(g.parent) : state.tags.add(g.parent);
+      state.tags.has(root) ? state.tags.delete(root) : state.tags.add(root);
       state.page = 1;
       render();
     };
     bar.appendChild(pb);
-    for (const c of g.children) {
+
+    for (const c of (state.childrenOf[root] || [])) {
       const b = document.createElement('button');
       b.className = 'tagbtn' + (state.tags.has(c) ? ' on' : '');
       b.textContent = '·' + c;
@@ -176,7 +179,7 @@ function renderTagsDisplay(el, it) {
     s.textContent = t;
     if (inherited) s.title = '继承自子标签';
     s.onclick = (e) => {
-      if (state.batchMode) return;
+      if (state.batchMode || state.editMode) return;
       e.stopPropagation();
       state.tags.add(t); state.page = 1; render();
     };
@@ -186,61 +189,94 @@ function renderTagsDisplay(el, it) {
   for (const t of full) if (!own.has(t)) add(t, true);
 }
 
-/* ---------- 编辑框里的候选标签 ---------- */
+/* ---------- 候选标签 ---------- */
 
-function buildCandidates(container, etags) {
+function buildCandidates(container, tagsInput) {
   container.innerHTML = '';
-  const cur = () => etags.value.split(',').map(s => s.trim()).filter(Boolean);
+  const cur = () => tagsInput.value.split(',').map(s => s.trim()).filter(Boolean);
 
-  if (!state.groups.length) {
+  const makeCand = (tag) => {
+    const c = document.createElement('span');
+    c.className = 'cand' + (cur().includes(tag) ? ' on' : '');
+    c.textContent = tag;
+    c.onclick = (e) => {
+      e.stopPropagation();
+      const now = cur();
+      const i = now.indexOf(tag);
+      if (i >= 0) now.splice(i, 1);
+      else now.push(tag);
+      tagsInput.value = now.join(', ');
+      buildCandidates(container, tagsInput);
+    };
+    return c;
+  };
+
+  if (!state.roots.length) {
     const hint = document.createElement('span');
-    hint.style.color = '#999';
-    hint.style.fontSize = '11px';
-    hint.textContent = '（还没定义层级，先在顶部“标签层级”里写几行，或直接手打）';
+    hint.className = 'empty-hint';
+    hint.textContent = '未定义标签';
     container.appendChild(hint);
     return;
   }
-  for (const g of state.groups) {
+
+  for (const root of state.roots) {
     const row = document.createElement('div');
     row.className = 'group-row';
 
-    const plabel = document.createElement('span');
-    plabel.className = 'group-label';
-    plabel.textContent = g.parent + '：';
-    row.appendChild(plabel);
+    const children = state.childrenOf[root] || [];
+    if (children.length > 0) {
+      const plabel = document.createElement('span');
+      plabel.className = 'group-label';
+      plabel.textContent = root;
+      row.appendChild(plabel);
+    }
 
-    const mkCand = (tag, extra) => {
-      const c = document.createElement('span');
-      c.className = 'cand' + (cur().includes(tag) ? ' on' : '');
-      c.textContent = tag;
-      if (extra) Object.assign(c.style, extra);
-      c.onclick = (e) => {
-        e.stopPropagation();
-        const now = cur();
-        const i = now.indexOf(tag);
-        if (i >= 0) now.splice(i, 1);
-        else now.push(tag);
-        etags.value = now.join(', ');
-        buildCandidates(container, etags);
-      };
-      row.appendChild(c);
-    };
-    mkCand(g.parent);
-    for (const c of g.children) mkCand(c, { marginLeft: '3px' });
+    row.appendChild(makeCand(root));
+    for (const c of children) {
+      const el = makeCand(c);
+      el.style.marginLeft = '3px';
+      row.appendChild(el);
+    }
     container.appendChild(row);
   }
 }
 
-function closeEditBox() {
-  if (!openEdit) return;
-  const { box, card } = openEdit;
-  box.classList.remove('on');
-  box.style.top = '';
-  box.style.bottom = '';
-  box.style.left = '';
-  box.style.right = '';
-  card.classList.remove('open');
-  openEdit = null;
+/* ---------- 单张编辑 ---------- */
+
+function enterEditMode() {
+  if (state.batchMode) exitBatchMode();
+  state.editMode = true;
+  state.editing = null;
+  document.body.classList.add('edit-mode');
+  $('#editPanel').classList.add('on');
+  $('#editBtn').textContent = '退出';
+  $('#editTitle').textContent = '';
+  $('#editTags').value = '';
+  $('#editCands').innerHTML = '';
+  $('#editNote').value = '';
+  $('#editTime').value = '';
+  render();
+}
+
+function exitEditMode() {
+  state.editMode = false;
+  state.editing = null;
+  document.body.classList.remove('edit-mode');
+  $('#editPanel').classList.remove('on');
+  $('#editBtn').textContent = '编辑';
+  render();
+}
+
+function selectForEdit(it) {
+  state.editing = it;
+  $('#editTitle').textContent = it.name;
+  $('#editTags').value = it.tags.join(', ');
+  $('#editNote').value = it.note || '';
+  $('#editTime').value = toLocalInput(it.time);
+  buildCandidates($('#editCands'), $('#editTags'));
+  document.querySelectorAll('.card.editing').forEach(c => c.classList.remove('editing'));
+  const card = document.querySelector(`.card[data-name="${CSS.escape(it.name)}"]`);
+  if (card) card.classList.add('editing');
 }
 
 /* ---------- 卡片 ---------- */
@@ -248,7 +284,9 @@ function closeEditBox() {
 function makeCard(it) {
   const card = document.createElement('div');
   card.className = 'card';
+  card.dataset.name = it.name;
   if (state.batchMode && state.selected.has(it.name)) card.classList.add('selected');
+  if (state.editMode && state.editing && state.editing.name === it.name) card.classList.add('editing');
 
   const check = document.createElement('div');
   check.className = 'batch-check';
@@ -272,6 +310,7 @@ function makeCard(it) {
   media.onclick = (e) => {
     e.stopPropagation();
     if (state.batchMode) toggleSelect(it.name, card);
+    else if (state.editMode) selectForEdit(it);
     else openLightbox(src, it.type);
   };
   card.appendChild(media);
@@ -296,96 +335,14 @@ function makeCard(it) {
   noteLine.style.display = it.note ? '' : 'none';
   card.appendChild(noteLine);
 
-  if (state.batchMode) return card;
-
-  const editBtn = document.createElement('button');
-  editBtn.textContent = '编辑';
-  editBtn.style.marginTop = '6px';
-  card.appendChild(editBtn);
-
-  const box = document.createElement('div');
-  box.className = 'editbox';
-  box.innerHTML = `
-    <label>标签（点下方标签可加/取消，也可手打逗号分隔）</label>
-    <input type="text" class="etags">
-    <div class="cand-box"></div>
-    <label>备注</label>
-    <input type="text" class="enote">
-    <label>时间</label>
-    <input type="datetime-local" class="etime">
-    <div class="editbox-actions">
-      <button class="cancel">取消</button>
-      <button class="save">保存</button>
-    </div>
-  `;
-  card.appendChild(box);
-
-  const etags = box.querySelector('.etags');
-  const enote = box.querySelector('.enote');
-  const etime = box.querySelector('.etime');
-  const candBox = box.querySelector('.cand-box');
-
-  editBtn.onclick = (e) => {
-    e.stopPropagation();
-    if (openEdit && openEdit.box === box) { closeEditBox(); return; }
-    closeEditBox();
-
-    etags.value = it.tags.join(', ');
-    enote.value = it.note || '';
-    etime.value = toLocalInput(it.time);
-    buildCandidates(candBox, etags);
-
-    box.style.top = '100%';
-    box.style.bottom = 'auto';
-    box.style.left = '-1px';
-    box.style.right = 'auto';
-    box.classList.add('on');
-    card.classList.add('open');
-
-    const cardRect = card.getBoundingClientRect();
-    const boxRect = box.getBoundingClientRect();
-    if (boxRect.right > window.innerWidth - 8) {
-      box.style.left = 'auto';
-      box.style.right = '-1px';
-    }
-    if (cardRect.bottom + boxRect.height > window.innerHeight - 8) {
-      box.style.top = 'auto';
-      box.style.bottom = '100%';
-    }
-
-    openEdit = { card, box };
-  };
-
-  box.querySelector('.cancel').onclick = (e) => {
-    e.stopPropagation();
-    closeEditBox();
-  };
-
-  box.querySelector('.save').onclick = async (e) => {
-    e.stopPropagation();
-    const tags = etags.value.split(',').map(s => s.trim()).filter(Boolean);
-    const note = enote.value;
-    const tval = etime.value;
-    const time = tval ? new Date(tval).getTime() / 1000 : it.time;
-    try {
-      await saveItem(it.name, { tags, note, time });
-      it.tags = tags; it.note = note; it.time = time;
-      renderTagsDisplay(tagsLine, it);
-      metaLine.textContent = fmtTime(it.time);
-      noteLine.textContent = it.note;
-      noteLine.style.display = it.note ? '' : 'none';
-      closeEditBox();
-      renderTagBar();
-      toast('已保存到 data.json');
-    } catch (err) {
-      toast('保存失败');
-    }
-  };
+  card._tagsLine = tagsLine;
+  card._metaLine = metaLine;
+  card._noteLine = noteLine;
 
   return card;
 }
 
-/* ---------- 批量操作 ---------- */
+/* ---------- 批量 ---------- */
 
 function toggleSelect(name, card) {
   if (state.selected.has(name)) {
@@ -399,17 +356,17 @@ function toggleSelect(name, card) {
 }
 
 function updateBatchBar() {
-  $('#batchCount').textContent = `已选 ${state.selected.size} 张`;
+  $('#batchCount').textContent = `已选 ${state.selected.size}`;
 }
 
 function enterBatchMode() {
-  closeEditBox();
+  if (state.editMode) exitEditMode();
   state.batchMode = true;
   state.selected.clear();
   state.batchAction = null;
   document.body.classList.add('batch-mode');
   $('#batchBar').classList.add('on');
-  $('#batchBtn').textContent = '退出批量';
+  $('#batchBtn').textContent = '退出';
   renderBatchPicker();
   updateBatchBar();
   render();
@@ -421,57 +378,55 @@ function exitBatchMode() {
   state.batchAction = null;
   document.body.classList.remove('batch-mode');
   $('#batchBar').classList.remove('on');
-  $('#batchBtn').textContent = '批量编辑';
+  $('#batchBtn').textContent = '批量';
   render();
 }
 
 function renderBatchPicker() {
   const picker = $('#batchTagPicker');
   picker.innerHTML = '';
-  if (!state.batchAction) {
-    picker.innerHTML = '<div class="hint">点“加标签”或“去标签”，然后点下面的标签应用到所有选中的图片。</div>';
-    return;
-  }
-  const verb = state.batchAction === 'add' ? '添加' : '移除';
-  const hint = document.createElement('div');
-  hint.className = 'hint';
-  hint.textContent = `点标签 → 给所有选中的图片${verb}该标签（会立即保存）`;
-  picker.appendChild(hint);
+  if (!state.batchAction) return;
 
-  if (!state.groups.length) {
+  if (!state.roots.length) {
     const empty = document.createElement('div');
-    empty.style.color = '#999';
-    empty.style.fontSize = '12px';
-    empty.textContent = '（还没定义层级，先在顶部“标签层级”里写几行）';
+    empty.className = 'empty-hint';
+    empty.textContent = '未定义标签';
     picker.appendChild(empty);
     return;
   }
 
-  for (const g of state.groups) {
+  for (const root of state.roots) {
     const row = document.createElement('div');
     row.className = 'picker-group';
 
-    const plabel = document.createElement('span');
-    plabel.className = 'group-label';
-    plabel.textContent = g.parent + '：';
-    row.appendChild(plabel);
+    const children = state.childrenOf[root] || [];
+    if (children.length > 0) {
+      const plabel = document.createElement('span');
+      plabel.className = 'group-label';
+      plabel.textContent = root;
+      row.appendChild(plabel);
+    }
 
-    const mkBtn = (tag, extra) => {
+    const mkBtn = (tag) => {
       const b = document.createElement('span');
       b.className = 'cand';
       b.textContent = tag;
-      if (extra) Object.assign(b.style, extra);
       b.onclick = () => applyBatch(state.batchAction, tag);
-      row.appendChild(b);
+      return b;
     };
-    mkBtn(g.parent);
-    for (const c of g.children) mkBtn(c, { marginLeft: '3px' });
+
+    row.appendChild(mkBtn(root));
+    for (const c of children) {
+      const el = mkBtn(c);
+      el.style.marginLeft = '3px';
+      row.appendChild(el);
+    }
     picker.appendChild(row);
   }
 }
 
 async function applyBatch(action, tag) {
-  if (!state.selected.size) { toast('还没选图片'); return; }
+  if (!state.selected.size) { toast('未选择'); return; }
   const patches = [];
   for (const name of state.selected) {
     const item = state.itemsByName.get(name);
@@ -484,11 +439,11 @@ async function applyBatch(action, tag) {
       patches.push({ item, newTags: item.tags.filter(t => t !== tag) });
     }
   }
-  if (!patches.length) { toast('没有变化'); return; }
+  if (!patches.length) { toast('无变化'); return; }
   try {
     await Promise.all(patches.map(p => saveItem(p.item.name, { tags: p.newTags })));
     for (const p of patches) p.item.tags = p.newTags;
-    toast(`已${action === 'add' ? '添加' : '移除'}标签「${tag}」到 ${patches.length} 张`);
+    toast(`${patches.length} 项已更新`);
     renderTagBar();
     render();
     updateBatchBar();
@@ -502,11 +457,10 @@ async function applyBatch(action, tag) {
 function renderGrid(list) {
   const grid = $('#grid');
   grid.innerHTML = '';
-  openEdit = null;
   const start = (state.page - 1) * PER_PAGE;
   const chunk = list.slice(start, start + PER_PAGE);
   if (!chunk.length) {
-    grid.innerHTML = '<p style="grid-column:1/-1;color:#888">没有匹配的内容</p>';
+    grid.innerHTML = '<p style="grid-column:1/-1;color:#888">无匹配</p>';
     return;
   }
   for (const it of chunk) grid.appendChild(makeCard(it));
@@ -529,14 +483,14 @@ function renderPager(total) {
     };
     return b;
   };
-  pager.appendChild(mk('← 上一页', state.page - 1, state.page === 1));
+  pager.appendChild(mk('←', state.page - 1, state.page === 1));
   for (let i = 1; i <= pages; i++) pager.appendChild(mk(String(i), i, false));
-  pager.appendChild(mk('下一页 →', state.page + 1, state.page === pages));
+  pager.appendChild(mk('→', state.page + 1, state.page === pages));
 }
 
 function render() {
   const list = filtered();
-  $('#count').textContent = `${list.length} / ${state.items.length} 项`;
+  $('#count').textContent = `${list.length} / ${state.items.length}`;
   renderGrid(list);
   renderPager(list.length);
 }
@@ -551,13 +505,14 @@ async function loadList() {
     state.itemsByName = new Map(data.items.map(it => [it.name, it]));
     state.tree = data.tree || '';
     const parsed = parseTree(state.tree);
-    state.groups = parsed.groups;
+    state.roots = parsed.roots;
+    state.childrenOf = parsed.childrenOf;
     state.parentOf = parsed.parentOf;
     $('#treeInput').value = state.tree;
     renderTagBar();
     render();
   } catch (e) {
-    $('#grid').innerHTML = '<p style="padding:20px;color:#c00">加载失败，请确认 server.py 正在运行</p>';
+    $('#grid').innerHTML = '<p style="padding:20px;color:#c00">无法连接服务器</p>';
   }
 }
 
@@ -580,19 +535,8 @@ $('#clearFilters').onclick = () => {
 $('#lightbox').addEventListener('click', e => {
   if (e.target.id === 'lightbox') closeLightbox();
 });
-
-document.addEventListener('click', e => {
-  if (!openEdit) return;
-  if (openEdit.box.contains(e.target)) return;
-  if (e.target.closest('.card') === openEdit.card) return;
-  closeEditBox();
-});
-
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    closeLightbox();
-    closeEditBox();
-  }
+  if (e.key === 'Escape') closeLightbox();
 });
 
 $('#saveTreeBtn').onclick = async () => {
@@ -601,12 +545,49 @@ $('#saveTreeBtn').onclick = async () => {
     await saveTree(text);
     state.tree = text;
     const parsed = parseTree(text);
-    state.groups = parsed.groups;
+    state.roots = parsed.roots;
+    state.childrenOf = parsed.childrenOf;
     state.parentOf = parsed.parentOf;
-    toast('层级已保存');
+    toast('已保存');
     renderTagBar();
     render();
     if (state.batchMode) renderBatchPicker();
+    if (state.editMode && state.editing) {
+      buildCandidates($('#editCands'), $('#editTags'));
+    }
+  } catch (e) {
+    toast('保存失败');
+  }
+};
+
+$('#editBtn').onclick = () => {
+  if (state.editMode) exitEditMode();
+  else enterEditMode();
+};
+
+$('#editTags').addEventListener('input', () => {
+  buildCandidates($('#editCands'), $('#editTags'));
+});
+
+$('#editSave').onclick = async () => {
+  if (!state.editing) return;
+  const it = state.editing;
+  const tags = $('#editTags').value.split(',').map(s => s.trim()).filter(Boolean);
+  const note = $('#editNote').value;
+  const tval = $('#editTime').value;
+  const time = tval ? new Date(tval).getTime() / 1000 : it.time;
+  try {
+    await saveItem(it.name, { tags, note, time });
+    it.tags = tags; it.note = note; it.time = time;
+    const card = document.querySelector(`.card[data-name="${CSS.escape(it.name)}"]`);
+    if (card) {
+      renderTagsDisplay(card._tagsLine, it);
+      card._metaLine.textContent = fmtTime(it.time);
+      card._noteLine.textContent = it.note;
+      card._noteLine.style.display = it.note ? '' : 'none';
+    }
+    renderTagBar();
+    toast('已保存');
   } catch (e) {
     toast('保存失败');
   }

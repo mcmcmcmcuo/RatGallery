@@ -1,5 +1,6 @@
 body { font: 14px/1.5 system-ui, sans-serif; margin: 0; }
-body.batch-mode { padding-bottom: 220px; }
+body.batch-mode { padding-bottom: 200px; }
+body.edit-mode { padding-bottom: 240px; }
 
 header { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #ccc;
          padding: 10px 14px; z-index: 10; }
@@ -11,6 +12,7 @@ input[type=search], input[type=text], input[type=datetime-local], select, textar
 #q { width: 100%; margin-bottom: 6px; }
 
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.row label { font-size: 12px; color: #666; }
 .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 
 button { padding: 4px 10px; cursor: pointer; border: 1px solid #999; background: #fafafa; }
@@ -20,15 +22,14 @@ button:hover { background: #eee; }
           cursor: pointer; font-size: 12px; }
 .tagbtn.on { background: #333; color: #fff; }
 
-#count { color: #666; font-size: 12px; }
+#count { color: #666; font-size: 12px; margin-left: auto; }
 
 #grid { padding: 14px; display: grid; align-items: start;
         grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.loading { padding: 20px; color: #888; }
 
 .card { border: 1px solid #ddd; padding: 6px; position: relative; }
-.card.open { z-index: 20; }
 .card.selected { border-color: #333; box-shadow: 0 0 0 2px #333 inset; }
+.card.editing { border-color: #333; box-shadow: 0 0 0 2px #333 inset; }
 
 .batch-check { display: none; position: absolute; top: 6px; left: 6px;
                width: 22px; height: 22px; border: 2px solid #fff;
@@ -41,7 +42,8 @@ body.batch-mode .batch-check { display: block; }
 
 .thumb { width: 100%; aspect-ratio: 1/1; object-fit: cover; display: block;
          cursor: zoom-in; background: #000; }
-body.batch-mode .thumb { cursor: pointer; }
+body.batch-mode .thumb,
+body.edit-mode .thumb { cursor: pointer; }
 
 .nm { font-size: 11px; color: #666; word-break: break-all; margin-top: 4px; }
 .note { font-size: 11px; color: #888; margin-top: 2px; }
@@ -50,7 +52,9 @@ body.batch-mode .thumb { cursor: pointer; }
 .tag { display: inline-block; background: #eee; padding: 0 6px;
        margin: 2px 2px 0 0; font-size: 11px; cursor: pointer; }
 .tag:hover { background: #ddd; }
-.tag.parent-tag { background: #ddd; color: #555; }
+.tag.parent-tag { background: #ddd; color: #555; cursor: default; }
+body.batch-mode .tag,
+body.edit-mode .tag { cursor: default; }
 
 #pager { text-align: center; padding: 10px; }
 #pager button { margin: 0 2px; }
@@ -71,14 +75,6 @@ summary { cursor: pointer; font-size: 12px; color: #666; }
 #treeInput { width: 100%; margin-top: 6px; font-family: monospace; }
 #saveTreeBtn { margin-top: 4px; }
 
-.editbox { display: none; position: absolute; top: 100%; left: -1px;
-           width: 320px; background: #fff; border: 1px solid #666;
-           padding: 10px; z-index: 30;
-           box-shadow: 2px 4px 12px rgba(0,0,0,.25); }
-.editbox.on { display: block; }
-.editbox label { font-size: 11px; color: #666; display: block; margin-top: 6px; }
-.editbox input[type=text], .editbox input[type=datetime-local] { width: 100%; }
-
 .group-row { margin-top: 4px; }
 .group-label { font-size: 11px; color: #888; margin-right: 4px; }
 .cand { display: inline-block; font-size: 11px; background: #f0f0f0;
@@ -87,8 +83,19 @@ summary { cursor: pointer; font-size: 12px; color: #666; }
 .cand:hover { background: #ddd; }
 .cand.on { background: #333; color: #fff; border-color: #333; }
 
-.editbox-actions { margin-top: 10px; display: flex; gap: 6px; justify-content: flex-end; }
+/* 编辑面板 */
+#editPanel { display: none; position: fixed; bottom: 0; left: 0; right: 0;
+             background: #fff; border-top: 2px solid #333;
+             padding: 10px 14px; z-index: 50;
+             max-height: 50vh; overflow: auto; }
+#editPanel.on { display: block; }
+.edit-title { font-size: 12px; color: #555; margin-bottom: 8px;
+              word-break: break-all; min-height: 1em; }
+.edit-body label { font-size: 11px; color: #666; display: block; margin-top: 6px; }
+.edit-body input[type=text], .edit-body input[type=datetime-local] { width: 100%; }
+.edit-actions { margin-top: 10px; text-align: right; }
 
+/* 批量面板 */
 #batchBar { display: none; position: fixed; bottom: 0; left: 0; right: 0;
             background: #fff; border-top: 2px solid #333;
             padding: 8px 14px; z-index: 50;
@@ -97,5 +104,4 @@ summary { cursor: pointer; font-size: 12px; color: #666; }
 .batch-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 #batchCount { font-weight: bold; margin-right: 6px; }
 #batchTagPicker { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ccc; }
-#batchTagPicker .hint { color: #999; font-size: 12px; margin-bottom: 6px; }
 #batchTagPicker .picker-group { margin-bottom: 6px; }
