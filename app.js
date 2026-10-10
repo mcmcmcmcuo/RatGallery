@@ -1,6 +1,6 @@
 const PER_PAGE = 40;
 const state = {
-  items: [], tree: '', q: '', tags: new Set(),
+  items: [], itemsByName: new Map(), tree: '', q: '', tags: new Set(),
   sort: 'time-desc', page: 1,
   groups: [], parentOf: {},
   batchMode: false,
@@ -10,6 +10,7 @@ const state = {
 let openEdit = null;
 
 const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2, '0');
 
 /* ---------- 标签层级 ---------- */
 
@@ -54,14 +55,12 @@ function expandTags(tags) {
 
 function fmtTime(ts) {
   const d = new Date(ts * 1000);
-  const p = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function toLocalInput(ts) {
   const d = new Date(ts * 1000);
-  const p = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function toast(msg) {
@@ -134,7 +133,7 @@ function closeLightbox() {
   $('#lightbox').classList.remove('on');
 }
 
-/* ---------- 渲染：标签栏 ---------- */
+/* ---------- 标签栏 ---------- */
 
 function renderTagBar() {
   const bar = $('#tagbar');
@@ -165,7 +164,7 @@ function renderTagBar() {
   }
 }
 
-/* ---------- 渲染：标签显示 ---------- */
+/* ---------- 卡片上的标签 ---------- */
 
 function renderTagsDisplay(el, it) {
   el.innerHTML = '';
@@ -187,7 +186,7 @@ function renderTagsDisplay(el, it) {
   for (const t of full) if (!own.has(t)) add(t, true);
 }
 
-/* ---------- 编辑框 ---------- */
+/* ---------- 编辑框里的候选标签 ---------- */
 
 function buildCandidates(container, etags) {
   container.innerHTML = '';
@@ -475,7 +474,7 @@ async function applyBatch(action, tag) {
   if (!state.selected.size) { toast('还没选图片'); return; }
   const patches = [];
   for (const name of state.selected) {
-    const item = state.items.find(x => x.name === name);
+    const item = state.itemsByName.get(name);
     if (!item) continue;
     if (action === 'add') {
       if (item.tags.includes(tag)) continue;
@@ -549,6 +548,7 @@ async function loadList() {
     const res = await fetch('/api/list');
     const data = await res.json();
     state.items = data.items;
+    state.itemsByName = new Map(data.items.map(it => [it.name, it]));
     state.tree = data.tree || '';
     const parsed = parseTree(state.tree);
     state.groups = parsed.groups;
