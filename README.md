@@ -47,19 +47,9 @@ pip install Pillow
 
 4. 使用完毕后按 `Ctrl+C` 停止服务器。
 
-## 启动.bat（可选）
+## 启动.bat
 
-在项目文件夹中新建文本文件，命名为 `启动.bat`，内容如下：
-
-```bat
-@echo off
-cd /d "%~dp0"
-start "" http://localhost:8000
-python server.py
-pause
-```
-
-保存后双击即可启动。
+点击 `启动.bat`一键启动服务器和网页。
 
 ## 功能说明
 
